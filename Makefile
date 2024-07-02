@@ -6,8 +6,7 @@ BUILDDIR      = build
 MAKE          = make
 VERSION       = $(shell cat VERSION)
 
-app_root = $(PROJ_DIR)
-app_root ?= .
+app_root := $(if $(PROJ_DIR),$(PROJ_DIR),$(CURDIR))
 pkg_src =  $(app_root)/sse_starlette
 tests_src = $(app_root)/tests
 
@@ -21,35 +20,37 @@ all: clean build upload  ## Build and upload
 # Building, Deploying \
 BUILDING:  ## ############################################################
 .PHONY: build
-build: clean format isort  ## format and build
+build: clean format sort-imports  ## format and build
 	@echo "building"
-	python -m build
+	#python -m build
+	pdm build
 
-.PHONY: upload
-upload:  ## upload to PyPi
-	@echo "upload"
+.PHONY: publish
+publish:  ## publish
+	@echo "upload to Pypi"
 	#twine upload --verbose dist/*
-	@git log -10 --pretty=format:"%h %aN %ar %d %s" | grep main | grep Bump && \
-		twine upload --verbose dist/* || \
-		echo "Bump Version before trying to upload"
+	#@git log -10 --pretty=format:"%h %aN %ar %d %s" | grep main | grep Bump && \
+		#twine upload --verbose dist/* || \
+		#echo "Bump Version before trying to upload"
+	pdm publish
 
 .PHONY: bump-major
 bump-major:  ## bump-major, tag and push
-	bumpversion --commit --tag major
+	bump-my-version bump --commit --tag major
 	git push
 	git push --tags
 	@$(MAKE) create-release
 
 .PHONY: bump-minor
 bump-minor:  ## bump-minor, tag and push
-	bumpversion --commit --tag minor
+	bump-my-version bump --commit --tag minor
 	git push
 	git push --tags
 	@$(MAKE) create-release
 
 .PHONY: bump-patch
 bump-patch:  ## bump-patch, tag and push
-	bumpversion --commit --tag patch
+	bump-my-version bump --commit --tag patch
 	git push
 	git push --tags
 	@$(MAKE) create-release
@@ -69,7 +70,11 @@ create-release:  ## create a release on GitHub via the gh cli
 TESTING:  ## ############################################################
 .PHONY: test
 test:  ## run tests
-	python -m pytest -ra --junitxml=report.xml --cov-config=setup.cfg --cov-report=xml --cov-report term --cov=$(pkg_src) tests/
+	python -m pytest -ra --junitxml=report.xml --cov-config=pyproject.toml --cov-report=xml --cov-report term --cov=$(pkg_src) tests/
+
+.PHONY: test-unit
+test-unit:  ## run all tests except "integration" marked
+	RUN_ENV=local python -m pytest -m "not (integration or e2e)" --cov-config=pyproject.toml --cov-report=html --cov-report=term --cov=$(pkg_src) tests
 
 .PHONY: tox
 tox:   ## Run tox
@@ -78,28 +83,29 @@ tox:   ## Run tox
 ################################################################################
 # Code Quality \
 QUALITY:  ## ############################################################
-.PHONY: style
-style: isort format  ## perform code style format (black, isort)
 
 .PHONY: format
-format:  ## perform black formatting
-	black $(pkg_src) tests
+format:  ## perform ruff formatting
+	@ruff format $(pkg_src) $(tests_src)
 
-.PHONY: isort
-isort:  ## apply import sort ordering
-	isort . --profile black
+.PHONY: format-check
+format-check:  ## perform black formatting
+	@ruff format --check $(pkg_src) $(tests_src)
+
+.PHONY: sort-imports
+sort-imports:  ## apply import sort ordering
+	isort $(pkg_src) $(tests_src) --profile black
+
+.PHONY: style
+style: sort-imports format  ## perform code style format (black, isort)
 
 .PHONY: lint
-lint: flake8 mypy ## lint code with all static code checks
-
-.PHONY: flake8
-flake8:  ## check style with flake8
-	@flake8 $(pkg_src)
+lint:  ## check style with ruff
+	ruff $(pkg_src) $(tests_src)
 
 .PHONY: mypy
 mypy:  ## check type hint annotations
-	# keep config in setup.cfg for integration with PyCharm
-	mypy --config-file setup.cfg $(pkg_src)
+	@mypy --config-file pyproject.toml --install-types --non-interactive $(pkg_src)
 
 ################################################################################
 # Clean \
